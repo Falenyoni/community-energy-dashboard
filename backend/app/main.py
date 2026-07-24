@@ -1,7 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
+from app.database import check_db_connection
 
 settings = get_settings()
 
@@ -23,3 +24,12 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/health/db")
+def health_db():
+    try:
+        check_db_connection()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Database unreachable: {exc}")
+    return {"status": "ok", "database": "connected"}
