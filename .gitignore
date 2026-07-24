@@ -4,9 +4,9 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
-.env
-.env.*
-!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
 
 # Node / React
 node_modules/
