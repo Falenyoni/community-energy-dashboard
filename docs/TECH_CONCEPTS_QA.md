@@ -73,3 +73,16 @@ widely-used, most documented combination for FastAPI, has synchronous support
 (simpler to reason about than async ORM code for a first backend project),
 and Alembic's autogenerate + versioned migration history directly supports
 the "schema-enforced database tables" language in Objective 2.
+
+### Does the FastAPI server need to be running to use the CLI ingestion script?
+
+No. `backend/app/ingestion/ingest.py` connects to Postgres **directly**
+through `app/database.py`'s SQLAlchemy engine — it has no dependency on
+`uvicorn` or any HTTP endpoint. It's a second, independent entry point into
+the same codebase: the FastAPI app (`app/main.py`) and the CLI script both
+import the same `app/database.py` (connection/session) and `app/models.py`
+(table definitions), but neither one depends on the other being started.
+Same principle as Alembic in the question above — one shared data layer,
+multiple independent things that can use it (a web server, a CLI script, a
+migration tool). The only shared requirement is a reachable database at
+whatever `DATABASE_URL` is set in `backend/.env`.
