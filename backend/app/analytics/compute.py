@@ -49,7 +49,13 @@ def compute_daily_summaries(db: Session, readings: list[Reading]) -> dict[tuple[
     """
     grouped: dict[tuple[str, date], list[Reading]] = defaultdict(list)
     for reading in readings:
-        key = (reading.device_id, reading.timestamp.date())
+        # Force UTC explicitly rather than trusting the DB session's
+        # timezone setting -- Postgres converts timestamptz values to the
+        # session timezone on read, which shifted late-day readings into
+        # the next calendar day on a local install (default: system
+        # timezone) but not on Render (default: UTC), creating a phantom
+        # extra day at the end of the range.
+        key = (reading.device_id, reading.timestamp.astimezone(timezone.utc).date())
         grouped[key].append(reading)
 
     device_day_totals: dict[tuple[str, date], float] = {}

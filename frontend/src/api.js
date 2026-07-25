@@ -22,4 +22,28 @@ export async function getReadingCount() {
   return body.count;
 }
 
+export function listSites() {
+  return getJson('/analytics/sites');
+}
+
+export function getSiteSummary(siteId) {
+  return getJson(`/analytics/site-summary/${siteId}`);
+}
+
+export function getRanking(siteId) {
+  return getJson(`/analytics/ranking?site_id=${siteId}`);
+}
+
+export function getDeviceDailySummary(deviceId) {
+  return getJson(`/analytics/daily-summary/${deviceId}`);
+}
+
+export function getComparison(siteId) {
+  return getJson(`/analytics/comparison/${siteId}`);
+}
+
+export function getHeatmap(siteId) {
+  return getJson(`/analytics/heatmap/${siteId}`);
+}
+
 export { API_URL };
