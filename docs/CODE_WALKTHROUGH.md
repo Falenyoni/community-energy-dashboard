@@ -159,6 +159,83 @@ identity map caches each one after its first lookup within a run — but
 every `reading_id` is unique, so there's nothing to cache, which is exactly
 why that check needed a different approach.
 
+## `backend/app/analytics/calculations.py` — the six-plus formulas
+
+Pure functions, no database access, one per formula from the proposal's
+Mathematical Notations page: `estimate_cost` (C = E x tariff),
+`daily_total_kwh`, `peak_power_kw` (Pmax), `baseline_kwh` (B), 
+`peer_group_average_kwh` (G), `relative_ratio` (R = value/benchmark),
+`classify_status` (turns a ratio into a dashboard-friendly label),
+`rank_devices`, and `percentile`/`is_peak_reading` for threshold-based peak
+detection. Data completeness (eta) is the sixth/extra formula, but its
+canonical implementation stays in `app.ingestion.validators` since it's
+computed at ingestion time — not duplicated here.
+
+Every function here is covered by a test in `backend/tests/test_analytics.py`
+that includes the manual calculation in a comment (e.g. the percentile test
+walks through the exact interpolation arithmetic) — this is the direct
+evidence for Objective 3's "unit-tested verification result against a known
+reference case" requirement.
+
+**If asked**: "Why keep these as plain functions instead of a class?" —
+each one takes plain data in, returns plain data out, with no shared state
+between calls. A class would just be a container for functions that don't
+need one; plain functions are easier to unit test in isolation and easier
+to read as "this is the formula," matching how they're presented in the
+proposal itself.
+
+## `backend/app/analytics/compute.py` — turning raw readings into results
+
+The orchestration layer: reads `Reading` rows, groups them, and calls the
+pure functions above to populate `DailySummary` and `ComparisonResult`.
+Order of operations:
+
+1. **Load only `quality_flag == "valid"` readings** — duplicates,
+   out-of-range and missing rows are deliberately excluded so they can't
+   silently distort a total (the same principle from ingestion, applied
+   again here).
+2. **Group by `(device_id, calendar day)`**, compute that day's total kWh,
+   peak kW, and cost — one `DailySummary` row per group.
+3. **Roll device-day totals up to site-day totals** (sum across all of a
+   site's channels for that day) — comparison happens at the whole-site
+   level, matching the "community energy dashboard" framing, while
+   ranking (below) stays at the individual-device level.
+4. **For each site+day**: `baseline` is the mean of that *same* site's own
+   prior days (self-comparison, trailing history — day 1 has no baseline,
+   correctly returns `None`); `peer group` is the mean of every *other*
+   site's total for that *same* calendar day (community comparison). The
+   stored `ratio`/`status_flag` are computed against the peer group
+   specifically, not the baseline — a deliberate choice, since peer
+   comparison is the literature-supported, socially-meaningful benchmark
+   (Allcott 2011, Schultz et al. 2007 in the proposal's lit review), while
+   baseline is kept alongside as self-comparison context.
+5. **Full rebuild every run** — existing summaries/comparisons are cleared
+   first, not incrementally updated. Simpler to reason about, and always
+   consistent with whatever's actually been ingested so far.
+
+**Gotcha hit while building this**: `Numeric` database columns
+(`energy_kwh_interval`, `power_kw`, etc.) come back from SQLAlchemy as
+Python `Decimal` objects, not `float` — this is deliberate, for exact
+decimal precision. Passing a `Decimal` straight into `estimate_cost()`
+(which multiplies by a plain `float` tariff rate) raised
+`TypeError: unsupported operand type(s) for *: 'decimal.Decimal' and 'float'`.
+Fix: convert to `float` right where data leaves the database
+(`compute_daily_summaries`), not inside the pure calculation functions —
+keeps `calculations.py` consistently plain-float, matching what its unit
+tests assume, and keeps the Decimal-vs-float translation in one place
+instead of scattered through every formula.
+
+## `backend/app/routers/analytics.py` — reading the results back out
+
+Three read-only endpoints, all querying the tables `compute.py` populated
+— no calculation happens in the router itself:
+- `GET /analytics/ranking` — sums each device's `DailySummary.total_kwh`
+  across every recorded day, then `rank_devices()` sorts descending.
+- `GET /analytics/comparison/{site_id}` — that site's `ComparisonResult`
+  rows, one per day.
+- `GET /analytics/daily-summary/{device_id}` — that device's `DailySummary`
+  rows, one per day.
+
 ## `backend/app/routers/stats.py` — first analytics-style endpoint
 
 `GET /stats/reading-count` — a single `COUNT(*)` query over the `readings`
