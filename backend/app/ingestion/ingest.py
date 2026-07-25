@@ -65,6 +65,11 @@ def ingest_csv(path: str) -> None:
     rejected: list[tuple[int, str]] = []
     device_timestamps: dict[str, list[datetime]] = {}
 
+    # Loaded once, checked in memory per row — avoids one DB round-trip per
+    # row (a real cost at ~170k+ rows against a remote database) just to
+    # ask "does this reading_id already exist?"
+    existing_reading_ids: set[str] = {row[0] for row in db.query(Reading.reading_id).all()}
+
     try:
         with open(path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -91,7 +96,8 @@ def ingest_csv(path: str) -> None:
                     reading.switching_state,
                 )
 
-                if db.get(Reading, reading.reading_id) is None:
+                if reading.reading_id not in existing_reading_ids:
+                    existing_reading_ids.add(reading.reading_id)
                     db.add(
                         Reading(
                             reading_id=reading.reading_id,
@@ -106,6 +112,15 @@ def ingest_csv(path: str) -> None:
                             quality_flag=quality_flag,
                         )
                     )
+
+                if row_number % 1_000 == 0:
+                    # Commit periodically, not just once at the end, so another
+                    # connection (e.g. the frontend's live count) can actually
+                    # see progress — Postgres's default READ COMMITTED isolation
+                    # means flush()-ed-but-uncommitted rows are invisible to
+                    # everyone except this same transaction.
+                    db.commit()
+                    print(f"  ...processed {row_number:,} rows (committed)")
 
         db.commit()
     except Exception:

@@ -119,6 +119,31 @@ target_metadata = Base.metadata
   `--autogenerate` diffs the live database against. Add a model or column,
   and the next autogenerate run picks it up with no other config change.
 
+## Gotcha: percent-encoded passwords and configparser
+
+`alembic.ini` and Alembic's `Config` object are backed by Python's
+`configparser`, which supports `%(name)s`-style variable interpolation in
+values — meaning a literal `%` character in any value it manages is treated
+as the start of that syntax, not as plain text.
+
+This broke when switching to a local Postgres database whose password
+needed URL-encoding (e.g. `@` becomes `%40`): the original `env.py` called
+`config.set_main_option("sqlalchemy.url", settings.database_url)`, which
+routes the URL through `configparser`, which promptly raised
+`ValueError: invalid interpolation syntax` on the first `%40` it hit.
+
+Fix: stop routing the URL through `config`/`configparser` at all. Build the
+engine directly from `settings.database_url` in Python
+(`create_engine(settings.database_url, ...)`), bypassing `configparser`
+entirely — it was only ever designed for static `.ini` values, not
+runtime-injected secrets that might contain `%`.
+
+**If asked**: "Why not just double the `%` characters instead (`%%`)?" —
+that would also work (it's `configparser`'s own escape mechanism), but it's
+fragile: it means special-casing every value that happens to contain `%`
+before ever handing it to `config`. Bypassing `config` for the URL entirely
+removes the problem at its source instead of working around it downstream.
+
 ## What happens when the schema changes later
 
 Whenever `models.py` changes (new table, new column, etc.), the pattern

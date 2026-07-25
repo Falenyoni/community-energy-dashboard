@@ -17,4 +17,9 @@ export function checkDatabase() {
   return getJson('/health/db');
 }
 
+export async function getReadingCount() {
+  const body = await getJson('/stats/reading-count');
+  return body.count;
+}
+
 export { API_URL };

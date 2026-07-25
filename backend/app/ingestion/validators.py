@@ -10,12 +10,20 @@ VOLTAGE_RANGE_V = (207.0, 253.0)
 # than the "typical" generation ranges in DATA_SPECIFICATION.md, since this
 # is meant to catch clearly bad data (a fridge at 5kW), not flag every
 # reading near the top of its normal operating range.
+#
+# Set above the highest value a "high" usage-profile site can legitimately
+# reach in data-generator/generate.py (typical_max x 1.5 profile multiplier
+# x 1.15 weekend boost, where applicable) — otherwise realistic high-usage
+# readings get misclassified as data-quality errors. background is
+# deliberately left tight: its ceiling is meant to still catch the
+# generator's injected "abnormal overnight draw" scenario (0.3-0.5kW),
+# which legitimate background usage (max ~0.225kW) never reaches.
 CHANNEL_MAX_POWER_KW = {
-    "geyser": 4.0,
+    "geyser": 5.0,
     "fridge": 0.5,
-    "lighting": 0.6,
-    "plugs": 2.5,
-    "cooking": 4.0,
+    "lighting": 1.0,
+    "plugs": 3.0,
+    "cooking": 6.5,
     "background": 0.3,
 }
 

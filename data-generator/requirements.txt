@@ -1,2 +1,3 @@
-pandas==2.2.3
-numpy==2.2.1
+# generate.py only uses the Python standard library (csv, random, datetime,
+# argparse) — per-row simulation with running state per device suited a
+# plain loop better than pandas/numpy vectorised operations.

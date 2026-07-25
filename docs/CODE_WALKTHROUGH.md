@@ -142,3 +142,101 @@ a count of rows that passed every check; "`rows=10`" is total rows read
 including rejects; the per-device completeness lines are computed
 independently of the flag counts, from the actual timestamps observed for
 that device.
+
+**If asked**: "Why load `existing_reading_ids` into memory up front instead
+of checking the database per row?" — this is the classic **N+1 query
+problem**: checking "does this reading already exist?" one row at a time
+means one network round-trip per row. Against a remote database, at
+~172,800 rows, that's 172,800 round-trips just to answer a question that
+one query up front (`SELECT reading_id FROM readings`) answers for the
+whole file at once — checking set membership afterward is then pure
+in-memory work (fast, no I/O). The original version of this script did the
+per-row check and would have taken well over an hour on the full dataset;
+this was caught and fixed before running it at scale, not after waiting.
+`get_or_create_site`/`get_or_create_channel` don't have this problem because
+there are only ~10 sites and ~60 devices total, and SQLAlchemy's session
+identity map caches each one after its first lookup within a run — but
+every `reading_id` is unique, so there's nothing to cache, which is exactly
+why that check needed a different approach.
+
+## `backend/app/routers/stats.py` — first analytics-style endpoint
+
+`GET /stats/reading-count` — a single `COUNT(*)` query over the `readings`
+table. Small on purpose: it's the first entry in what will become the
+analytics router (Objective 3's baseline/peak/ranking/cost endpoints follow
+the same `routers/` pattern), and it exists right now specifically to give
+live visual feedback in the frontend while a large ingestion is running,
+rather than staring at a silent terminal.
+
+`app/main.py` wires it in with `app.include_router(stats.router)` — this is
+the pattern every future router (ingestion upload endpoint, analytics
+endpoints) will follow: define an `APIRouter` in its own file under
+`routers/`, include it once in `main.py`. Keeps `main.py` itself from
+growing into one large file as more endpoints are added.
+
+The frontend (`App.jsx`) polls this endpoint every 3 seconds via
+`setInterval` in its own `useEffect`, independent of the API/DB health
+checks — so the count keeps climbing on screen during a long-running
+ingestion without needing a manual "Re-check" click.
+
+## `data-generator/generate.py` — the simulated dataset
+
+Produces the CSV that gets fed into the ingestion pipeline above. Standard
+library only (no pandas/numpy) — the per-device running state (cumulative
+energy, per-channel randomness) fits a plain loop more naturally than
+vectorised array operations would.
+
+Structure:
+
+1. **Per-channel power functions** (`geyser_power`, `fridge_power`, etc.) —
+   each encodes a plausible daily pattern: geyser cycles morning/evening
+   only, fridge cycles constantly regardless of time, lighting peaks in the
+   evening, cooking bursts at meal times, background is a near-constant low
+   baseline. Each site also has a `low`/`medium`/`high` usage profile
+   (a multiplier applied uniformly across its channels) so peer comparison
+   later has real variation to compare against, not near-identical sites.
+2. **`derive_current()`** — computes `current_a` from `power_kw` and
+   `voltage_v` using an assumed power factor per channel (`P = V x I x PF`,
+   rearranged for `I`), so the three electrical values stay internally
+   consistent rather than being independently randomised.
+3. **`apply_injections()`** — six *fixed*, documented scenarios (not
+   randomly placed each run): a missing-readings gap, a duplicate reading,
+   an out-of-range voltage, and three abnormal-use events (long geyser
+   runtime, rapid fridge cycling, high overnight background draw). Fixed
+   locations mean the expected effect on ingestion output is knowable in
+   advance and reproducible — this is what "controlled validation" (Section
+   C.5) means in practice: you can state before running ingestion that
+   exactly one row should come out `duplicate`, exactly one `out_of_range`,
+   and so on, then confirm the pipeline actually produces that.
+
+**If asked**: "Why fixed injection locations instead of randomizing them
+each run?" — reproducibility. A randomly-placed bug either shows up or it
+doesn't on a given run, which is a weak demo. A fixed, named scenario
+("SITE-003-PLUGS, day 8, 09:30, voltage forced to 268V") is something you
+can state as an expected outcome *before* running ingestion and then point
+at the exact matching row in the output — that's what makes it evidence
+rather than a coincidence.
+
+**If asked**: "How do you know the simulated values are realistic?" — the
+per-channel power ranges come from `DATA_SPECIFICATION.md`'s typical-range
+table, and the time-of-day logic (geyser morning/evening peaks, cooking at
+meal times, lighting in the evening) mirrors documented household load-shape
+research cited in the proposal's literature review (Toussaint 2020; Ritchie,
+Engelbrecht & Booysen 2022), not arbitrary numbers.
+
+**Verified result** (a good one to cite directly in your defense): running
+the full 172,800-row generated dataset through ingestion initially produced
+`out_of_range=2058` — far more than the two intentionally-injected anomalies.
+Root cause: `generate.py` scales power by a site's usage profile (up to 1.5x
+for "high" usage) and a weekend boost (up to another 1.15x for some
+channels), but `validators.py`'s power ceilings were set from the base
+typical ranges without accounting for that scaling — so realistic high-usage
+readings were being misclassified as bad data. Recalculating each channel's
+true legitimate maximum (typical x 1.5 x 1.15 where applicable) and raising
+the ceilings accordingly brought the count to exactly **21** — precisely
+`1` (the injected out-of-range voltage) `+ 20` (the injected abnormal
+overnight background draw), with every other row correctly `valid`. This is
+the kind of discrepancy that only shows up at realistic dataset scale, not
+in a small hand-written test file — which is itself worth mentioning if
+asked why both a tiny fixture and a full-scale run were used to validate
+the pipeline.

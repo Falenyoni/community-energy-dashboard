@@ -86,3 +86,35 @@ Same principle as Alembic in the question above — one shared data layer,
 multiple independent things that can use it (a web server, a CLI script, a
 migration tool). The only shared requirement is a reachable database at
 whatever `DATABASE_URL` is set in `backend/.env`.
+
+### Why didn't the frontend's live row count move while ingestion was clearly running?
+
+This is a transaction-isolation question, not a bug in the frontend polling.
+SQLAlchemy's `flush()` sends pending INSERTs to Postgres, but they only
+become part of the **current, still-open transaction** — they are not
+durable or visible elsewhere yet. `commit()` is the step that actually ends
+the transaction and makes its changes visible to other connections.
+
+Postgres's default isolation level, **READ COMMITTED**, means any other
+connection (like the frontend's `/stats/reading-count` query, running in its
+own separate session) can only ever see data from **committed** transactions
+— never another transaction's flushed-but-uncommitted writes, no matter how
+long that transaction has been open or how much work it's already done
+internally.
+
+The original ingestion script called `db.commit()` exactly once, at the very
+end, after all ~172,800 rows were processed — so every row was genuinely
+being written from the script's own point of view, but invisible to
+literally every other connection (the frontend, a `psql` session, anything)
+until that single final commit. The fix was to commit periodically (every
+1,000 rows) during the loop, so partial progress becomes visible to other
+connections as it happens, not just once the whole run finishes.
+
+**If asked**: "Doesn't committing partway through risk leaving inconsistent
+data if the script crashes mid-run?" — no more than any batch-import process:
+each commit only finalizes rows already fully validated and added to the
+session at that point, so a crash after a partial commit leaves a valid
+(if incomplete) subset of correctly-validated data, not corrupted rows. The
+next run's `existing_reading_ids` check (see the ingestion CLI answer above)
+correctly picks up from whatever was truly committed, since it's re-queried
+fresh at the start of each run.
