@@ -8,6 +8,7 @@ export default function RankingChart({ data }) {
   const rows = data.map((d) => ({
     ...d,
     channel: channelFromDeviceId(d.device_id),
+    displayLabel: d.device_id.replace(/^SITE-/, 'HOUSE-'),
   }));
 
   return (
@@ -22,7 +23,7 @@ export default function RankingChart({ data }) {
         />
         <YAxis
           type="category"
-          dataKey="device_id"
+          dataKey="displayLabel"
           stroke="var(--baseline)"
           tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
           tickLine={false}
