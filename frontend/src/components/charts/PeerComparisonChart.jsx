@@ -45,7 +45,7 @@ export default function PeerComparisonChart({ siteSummary, comparison }) {
         <Line
           type="monotone"
           dataKey="this_site"
-          name="This site"
+          name="This house"
           stroke="var(--series-1)"
           strokeWidth={2}
           dot={false}

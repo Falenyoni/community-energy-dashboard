@@ -110,7 +110,7 @@ def derive_current(power_kw: float, voltage_v: float, channel: str) -> float:
 def generate_rows(seed: int) -> list[dict]:
     rows = []
     for site_index in range(SITE_COUNT):
-        site_id = f"SITE-{site_index + 1:03d}"
+        site_id = f"HOUSE-{site_index + 1:03d}"
         profile = USAGE_PROFILES[site_index % len(USAGE_PROFILES)]
         base_multiplier = PROFILE_MULTIPLIER[profile]
 
@@ -170,14 +170,14 @@ def apply_injections(rows: list[dict]) -> tuple[list[dict], list[str]]:
     log = []
     idx = index_by(rows)
 
-    # 1. Missing readings: SITE-001, lighting, day 10, 02:00-04:45 (a comms gap)
+    # 1. Missing readings: HOUSE-001, lighting, day 10, 02:00-04:45 (a comms gap)
     target = idx.get((0, "lighting", 10), [])
     gap = [i for i in target if rows[i]["_dt"].hour in (2, 3, 4)]
     for i in gap:
         rows[i]["_drop"] = True
-    log.append(f"Missing gap: SITE-001-LIGHTING, day 10, 02:00-04:45 ({len(gap)} intervals dropped)")
+    log.append(f"Missing gap: HOUSE-001-LIGHTING, day 10, 02:00-04:45 ({len(gap)} intervals dropped)")
 
-    # 2. Duplicate reading: SITE-002, fridge, day 5, 14:00 — repeated with a new reading_id
+    # 2. Duplicate reading: HOUSE-002, fridge, day 5, 14:00 — repeated with a new reading_id
     target = idx.get((1, "fridge", 5), [])
     dup_source = next((i for i in target if rows[i]["_dt"].hour == 14 and rows[i]["_dt"].minute == 0), None)
     if dup_source is not None:
@@ -186,7 +186,7 @@ def apply_injections(rows: list[dict]) -> tuple[list[dict], list[str]]:
         rows.append(dup_row)
         log.append(f"Duplicate reading: {rows[dup_source]['device_id']} at {rows[dup_source]['timestamp']}")
 
-    # 3. Out-of-range voltage: SITE-003, plugs, day 8, 09:30 -> 268V (outside 207-253V)
+    # 3. Out-of-range voltage: HOUSE-003, plugs, day 8, 09:30 -> 268V (outside 207-253V)
     target = idx.get((2, "plugs", 8), [])
     oor = next((i for i in target if rows[i]["_dt"].hour == 9 and rows[i]["_dt"].minute == 30), None)
     if oor is not None:
@@ -195,7 +195,7 @@ def apply_injections(rows: list[dict]) -> tuple[list[dict], list[str]]:
         rows[oor]["quality_flag"] = "out_of_range"
         log.append(f"Out-of-range voltage: {rows[oor]['device_id']} at {rows[oor]['timestamp']} -> 268V")
 
-    # 4. Abnormal geyser runtime: SITE-004, day 12, 10:00-13:45 forced "on" (typical run is ~1-2h)
+    # 4. Abnormal geyser runtime: HOUSE-004, day 12, 10:00-13:45 forced "on" (typical run is ~1-2h)
     target = idx.get((3, "geyser", 12), [])
     long_run = [i for i in target if rows[i]["_dt"].hour in (10, 11, 12, 13)]
     for i in long_run:
@@ -205,9 +205,9 @@ def apply_injections(rows: list[dict]) -> tuple[list[dict], list[str]]:
         rows[i]["switching_state"] = "on"
         rows[i]["quality_flag"] = "abnormal_event"
     if long_run:
-        log.append(f"Abnormal geyser runtime: SITE-004-GEYSER, day 12, 10:00-13:45 ({len(long_run)} intervals)")
+        log.append(f"Abnormal geyser runtime: HOUSE-004-GEYSER, day 12, 10:00-13:45 ({len(long_run)} intervals)")
 
-    # 5. Abnormal fridge cycling: SITE-005, day 20 — toggling every interval instead of the normal ~2-cycle rhythm
+    # 5. Abnormal fridge cycling: HOUSE-005, day 20 — toggling every interval instead of the normal ~2-cycle rhythm
     target = sorted(idx.get((4, "fridge", 20), []), key=lambda i: rows[i]["_dt"])
     for pos, i in enumerate(target):
         voltage_v = rows[i]["voltage_v"]
@@ -216,9 +216,9 @@ def apply_injections(rows: list[dict]) -> tuple[list[dict], list[str]]:
         rows[i]["switching_state"] = "on" if pos % 2 == 0 else "standby"
         rows[i]["quality_flag"] = "abnormal_event"
     if target:
-        log.append(f"Abnormal fridge cycling: SITE-005-FRIDGE, day 20 (rapid on/off every interval, {len(target)} intervals)")
+        log.append(f"Abnormal fridge cycling: HOUSE-005-FRIDGE, day 20 (rapid on/off every interval, {len(target)} intervals)")
 
-    # 6. Abnormal background overnight draw: SITE-006, day 18, 00:00-04:45 (should be near-idle overnight)
+    # 6. Abnormal background overnight draw: HOUSE-006, day 18, 00:00-04:45 (should be near-idle overnight)
     target = idx.get((5, "background", 18), [])
     overnight = [i for i in target if rows[i]["_dt"].hour < 5]
     for i in overnight:
@@ -227,7 +227,7 @@ def apply_injections(rows: list[dict]) -> tuple[list[dict], list[str]]:
         rows[i]["current_a"] = derive_current(rows[i]["power_kw"], voltage_v, "background")
         rows[i]["quality_flag"] = "abnormal_event"
     if overnight:
-        log.append(f"Abnormal background overnight draw: SITE-006-BACKGROUND, day 18, 00:00-04:45 ({len(overnight)} intervals)")
+        log.append(f"Abnormal background overnight draw: HOUSE-006-BACKGROUND, day 18, 00:00-04:45 ({len(overnight)} intervals)")
 
     rows = [row for row in rows if not row.get("_drop")]
     return rows, log
