@@ -25,20 +25,35 @@ def list_sites(db: Session = Depends(get_db)):
 def device_ranking(site_id: str | None = None, db: Session = Depends(get_db)):
     """Device-level ranking: total kWh summed across all recorded days, highest first.
 
+    Also reports each device's peak power (kW) — the highest instantaneous draw
+    seen in any single day — alongside total energy. Total kWh alone can't tell
+    apart "low power, always on" from "high power, brief use"; peak_power_kw does.
+
     Optionally scoped to one site via ?site_id=..., since the dashboard shows
     ranking per selected site rather than pooled across the whole community.
     """
-    query = db.query(DailySummary.device_id, DailySummary.total_kwh)
+    query = db.query(DailySummary.device_id, DailySummary.total_kwh, DailySummary.peak_power_kw)
     if site_id is not None:
         query = query.join(
             SmartControllerChannel, SmartControllerChannel.device_id == DailySummary.device_id
         ).filter(SmartControllerChannel.site_id == site_id)
 
     totals: dict[str, float] = {}
-    for device_id, total_kwh in query.all():
+    peak_power: dict[str, float] = {}
+    for device_id, total_kwh, peak_power_kw in query.all():
         totals[device_id] = totals.get(device_id, 0.0) + float(total_kwh)
+        if peak_power_kw is not None:
+            peak_power[device_id] = max(peak_power.get(device_id, 0.0), float(peak_power_kw))
+
     ranked = rank_devices(totals)
-    return [{"device_id": device_id, "total_kwh": round(total, 4)} for device_id, total in ranked]
+    return [
+        {
+            "device_id": device_id,
+            "total_kwh": round(total, 4),
+            "peak_power_kw": round(peak_power[device_id], 4) if device_id in peak_power else None,
+        }
+        for device_id, total in ranked
+    ]
 
 
 @router.get("/site-summary/{site_id}")
