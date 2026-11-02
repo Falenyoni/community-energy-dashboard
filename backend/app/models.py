@@ -7,6 +7,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 CONTROLLER_CHANNELS = ("geyser", "fridge", "lighting", "plugs", "cooking", "background")
 SWITCHING_STATES = ("on", "off", "standby", "fault")
 QUALITY_FLAGS = ("valid", "missing", "duplicate", "out_of_range", "abnormal_event")
+DATA_SOURCES = ("simulated", "real")
 
 
 def new_id() -> str:
@@ -37,6 +38,9 @@ class Site(Base):
     community_id: Mapped[str | None] = mapped_column(String, nullable=True)
     anonymised_label: Mapped[str] = mapped_column(String, nullable=False)
     site_type: Mapped[str] = mapped_column(String, default="household")
+    # "simulated" (CSV generator) vs "real" (an actual linked device, e.g. tuya_source.py) —
+    # lets the dashboard visually separate proof-of-concept live data from the seeded dataset.
+    data_source: Mapped[str] = mapped_column(String, default="simulated")
 
     channels: Mapped[list["SmartControllerChannel"]] = relationship(back_populates="site")
 

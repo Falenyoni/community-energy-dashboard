@@ -16,7 +16,12 @@ def list_sites(db: Session = Depends(get_db)):
     """All sites, for a site-selector control."""
     rows = db.query(Site).order_by(Site.site_id).all()
     return [
-        {"site_id": row.site_id, "anonymised_label": row.anonymised_label, "site_type": row.site_type}
+        {
+            "site_id": row.site_id,
+            "anonymised_label": row.anonymised_label,
+            "site_type": row.site_type,
+            "data_source": row.data_source,
+        }
         for row in rows
     ]
 

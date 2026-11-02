@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getComparison, getDeviceDailySummary, getHeatmap, getRanking, getSiteSummary, listSites } from '../api';
 import { CHANNEL_COLOR_VAR, CHANNEL_ORDER, cssVar } from '../channelColors';
+import { useHideSimulated } from '../useHideSimulated';
 import StatTile from './StatTile';
 import TrendChart from './charts/TrendChart';
 import RankingChart from './charts/RankingChart';
@@ -87,6 +88,7 @@ export default function Dashboard() {
   const [heatmap, setHeatmap] = useState([]);
   const [channelTotals, setChannelTotals] = useState({});
   const [loading, setLoading] = useState(true);
+  const [hideSimulated, setHideSimulated] = useHideSimulated();
 
   useEffect(() => {
     listSites().then((rows) => {
@@ -95,36 +97,65 @@ export default function Dashboard() {
     });
   }, []);
 
+  const visibleSites = hideSimulated ? sites.filter((s) => s.data_source === 'real') : sites;
+
+  useEffect(() => {
+    if (!visibleSites.length) return;
+    if (!visibleSites.some((s) => s.site_id === siteId)) {
+      setSiteId(visibleSites[0].site_id);
+    }
+  }, [hideSimulated, visibleSites, siteId]);
+
   useEffect(() => {
     if (!siteId) return;
-    setLoading(true);
 
-    Promise.all([
-      getSiteSummary(siteId),
-      getRanking(siteId),
-      getComparison(siteId),
-      getHeatmap(siteId),
-      Promise.all(
-        CHANNEL_ORDER.map((ch) =>
-          getDeviceDailySummary(`${siteId}-${ch.toUpperCase()}`)
-            .then((rows) => [ch, rows.at(-1)?.total_kwh || 0])
-            .catch(() => [ch, 0])
-        )
-      ),
-    ]).then(([summary, rank, comp, heat, channelPairs]) => {
-      setSiteSummary(summary);
-      setRanking(rank);
-      setComparison(comp);
-      setHeatmap(heat);
-      setChannelTotals(Object.fromEntries(channelPairs));
-      setLoading(false);
-    });
+    let cancelled = false;
+
+    const fetchAll = (isInitialLoad) => {
+      if (isInitialLoad) setLoading(true);
+
+      Promise.all([
+        getSiteSummary(siteId),
+        getRanking(siteId),
+        getComparison(siteId),
+        getHeatmap(siteId),
+        Promise.all(
+          CHANNEL_ORDER.map((ch) =>
+            getDeviceDailySummary(`${siteId}-${ch.toUpperCase()}`)
+              .then((rows) => [ch, rows.at(-1)?.total_kwh || 0])
+              .catch(() => [ch, 0])
+          )
+        ),
+      ]).then(([summary, rank, comp, heat, channelPairs]) => {
+        if (cancelled) return;
+        setSiteSummary(summary);
+        setRanking(rank);
+        setComparison(comp);
+        setHeatmap(heat);
+        setChannelTotals(Object.fromEntries(channelPairs));
+        if (isInitialLoad) setLoading(false);
+      });
+    };
+
+    fetchAll(true);
+    // Re-poll the API periodically so the dashboard reflects new readings
+    // without a manual page reload - useful while demoing a live device.
+    // Silent (no loading spinner) so it doesn't flicker every refresh.
+    const intervalId = setInterval(() => fetchAll(false), 30000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
   }, [siteId]);
 
   const latestDay = siteSummary.at(-1);
   const latestComparison = comparison.at(-1);
   const statusMeta = STATUS_META[latestComparison?.status_flag] ?? STATUS_META.unknown;
-  const siteLabel = sites.find((s) => s.site_id === siteId)?.anonymised_label ?? siteId;
+  const selectedSite = sites.find((s) => s.site_id === siteId);
+  const siteLabel = selectedSite?.anonymised_label ?? siteId;
+  const simulatedSites = visibleSites.filter((s) => s.data_source !== 'real');
+  const realSites = visibleSites.filter((s) => s.data_source === 'real');
 
   const csvRows = useMemo(
     () => siteSummary.map((d) => ({ date: d.date, total_kwh: d.total_kwh, peak_power_kw: d.peak_power_kw, cost_estimate: d.cost_estimate })),
@@ -134,15 +165,44 @@ export default function Dashboard() {
   return (
     <div className="dashboard">
       <header className="dashboard-header">
-        <h1>Community Energy Dashboard</h1>
+        <h1>
+          Community Energy Dashboard
+          {selectedSite?.data_source === 'real' && (
+            <span className="data-source-badge data-source-badge--real">Real device</span>
+          )}
+          {selectedSite && selectedSite.data_source !== 'real' && (
+            <span className="data-source-badge data-source-badge--simulated">Simulated</span>
+          )}
+        </h1>
         <div className="dashboard-controls">
+          <label className="hide-simulated-toggle">
+            <input
+              type="checkbox"
+              checked={hideSimulated}
+              onChange={(e) => setHideSimulated(e.target.checked)}
+            />
+            Hide simulated data
+          </label>
           <label htmlFor="site-select">House</label>
           <select id="site-select" value={siteId} onChange={(e) => setSiteId(e.target.value)}>
-            {sites.map((s) => (
-              <option key={s.site_id} value={s.site_id}>
-                {s.anonymised_label}
-              </option>
-            ))}
+            {simulatedSites.length > 0 && (
+              <optgroup label="Simulated households">
+                {simulatedSites.map((s) => (
+                  <option key={s.site_id} value={s.site_id}>
+                    {s.anonymised_label}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {realSites.length > 0 && (
+              <optgroup label="Real devices">
+                {realSites.map((s) => (
+                  <option key={s.site_id} value={s.site_id}>
+                    {s.anonymised_label}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
           <button type="button" onClick={() => downloadCsv(csvRows, `${siteId}-daily-summary.csv`)}>
             Export CSV
@@ -170,12 +230,11 @@ export default function Dashboard() {
       ) : (
         <>
           <section className="kpi-row">
-            <StatTile label="Today's consumption" value={latestDay?.total_kwh.toFixed(2) ?? '—'} unit="kWh" />
-            <StatTile label="Peak power" value={latestDay?.peak_power_kw?.toFixed(2) ?? '—'} unit="kW" />
-            <StatTile label="Estimated cost" value={`R${latestDay?.cost_estimate?.toFixed(2) ?? '—'}`} />
+            <StatTile label="Today's consumption" value={latestDay?.total_kwh.toFixed(2) ?? '-'} unit="kWh" />
+            <StatTile label="Peak power" value={latestDay?.peak_power_kw?.toFixed(2) ?? '-'} unit="kW" />
             <StatTile
               label="Community comparison"
-              value={latestComparison?.ratio ? `${(latestComparison.ratio * 100).toFixed(0)}%` : '—'}
+              value={latestComparison?.ratio ? `${(latestComparison.ratio * 100).toFixed(0)}%` : '-'}
               statusColor={statusMeta.color}
               statusLabel={statusMeta.label}
             />

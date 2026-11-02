@@ -31,10 +31,12 @@ def clean_row(row: dict) -> dict:
     return {key: (value if value not in ("", None) else None) for key, value in row.items()}
 
 
-def get_or_create_site(db: Session, site_id: str) -> Site:
+def get_or_create_site(db: Session, site_id: str, data_source: str = "simulated") -> Site:
     site = db.get(Site, site_id)
     if site is None:
-        site = Site(site_id=site_id, anonymised_label=site_id, site_type="household")
+        site = Site(
+            site_id=site_id, anonymised_label=site_id, site_type="household", data_source=data_source
+        )
         db.add(site)
         db.flush()
     return site

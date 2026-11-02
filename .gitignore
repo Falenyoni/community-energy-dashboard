@@ -25,3 +25,8 @@ Thumbs.db
 data-generator/output/
 *.db
 *.sqlite3
+
+# tinytuya wizard/snapshot output - contains local_key and device GPS coords
+backend/devices.json
+backend/snapshot.json
+backend/tuya-raw.json
