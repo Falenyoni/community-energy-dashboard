@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { getComparison, getSiteSummary, listSites } from '../api';
-import { useHideSimulated } from '../useHideSimulated';
 
 const STATUS_META = {
   above_average: { color: 'var(--status-warning)', label: 'Above average' },
@@ -13,7 +12,6 @@ export default function AdminOverview() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [hideSimulated, setHideSimulated] = useHideSimulated();
 
   useEffect(() => {
     let cancelled = false;
@@ -29,7 +27,6 @@ export default function AdminOverview() {
                 return {
                   siteId: site.site_id,
                   label: site.anonymised_label,
-                  dataSource: site.data_source,
                   totalKwh: latestDay?.total_kwh ?? null,
                   peakKw: latestDay?.peak_power_kw ?? null,
                   cost: latestDay?.cost_estimate ?? null,
@@ -40,7 +37,6 @@ export default function AdminOverview() {
               .catch(() => ({
                 siteId: site.site_id,
                 label: site.anonymised_label,
-                dataSource: site.data_source,
                 totalKwh: null,
                 peakKw: null,
                 cost: null,
@@ -71,20 +67,10 @@ export default function AdminOverview() {
   if (loading) return <p className="dashboard-loading">Loading community overview...</p>;
   if (error) return <p className="dashboard-loading">Failed to load overview: {error}</p>;
 
-  const visibleRows = hideSimulated ? rows.filter((row) => row.dataSource === 'real') : rows;
-
   return (
     <div className="dashboard">
       <header className="dashboard-header">
         <h1>Admin: All Households</h1>
-        <label className="hide-simulated-toggle">
-          <input
-            type="checkbox"
-            checked={hideSimulated}
-            onChange={(e) => setHideSimulated(e.target.checked)}
-          />
-          Hide simulated data
-        </label>
       </header>
 
       <section className="chart-card">
@@ -92,27 +78,17 @@ export default function AdminOverview() {
           <thead>
             <tr>
               <th>Household</th>
-              <th>Source</th>
               <th>Today's kWh</th>
               <th>Peak kW</th>
               <th>vs. community average</th>
             </tr>
           </thead>
           <tbody>
-            {visibleRows.map((row) => {
+            {rows.map((row) => {
               const statusMeta = STATUS_META[row.statusFlag] ?? STATUS_META.unknown;
               return (
                 <tr key={row.siteId}>
                   <td>{row.label}</td>
-                  <td>
-                    <span
-                      className={`data-source-badge ${
-                        row.dataSource === 'real' ? 'data-source-badge--real' : 'data-source-badge--simulated'
-                      }`}
-                    >
-                      {row.dataSource === 'real' ? 'Real device' : 'Simulated'}
-                    </span>
-                  </td>
                   <td>{row.totalKwh?.toFixed(2) ?? '-'}</td>
                   <td>{row.peakKw?.toFixed(2) ?? '-'}</td>
                   <td style={{ color: statusMeta.color }}>
