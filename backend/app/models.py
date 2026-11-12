@@ -4,9 +4,9 @@ from datetime import datetime
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-CONTROLLER_CHANNELS = ("geyser", "fridge", "lighting", "plugs", "cooking", "background")
+CONTROLLER_CHANNELS = ("geyser", "fridge", "lighting", "plugs", "cooking", "background", "whole_house")
 SWITCHING_STATES = ("on", "off", "standby", "fault")
-QUALITY_FLAGS = ("valid", "missing", "duplicate", "out_of_range", "abnormal_event")
+QUALITY_FLAGS = ("valid", "missing", "duplicate", "out_of_range", "abnormal_event", "imputed")
 DATA_SOURCES = ("simulated", "real")
 
 

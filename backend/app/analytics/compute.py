@@ -27,7 +27,7 @@ from app.analytics.calculations import (
     relative_ratio,
 )
 from app.database import SessionLocal
-from app.models import ComparisonResult, DailySummary, Reading, SmartControllerChannel
+from app.models import ComparisonResult, DailySummary, Reading, Site, SmartControllerChannel
 
 
 def load_valid_readings(db: Session) -> list[Reading]:
@@ -106,29 +106,44 @@ def compute_site_day_totals(
     return {key: round(value, 4) for key, value in site_day_totals.items()}
 
 
-def compute_comparison_results(db: Session, site_day_totals: dict[tuple[str, date], float]) -> None:
+def compute_comparison_results(
+    db: Session, site_day_totals: dict[tuple[str, date], float]
+) -> None:
     """
     For each site+day: baseline = mean of that same site's own prior days
-    (self-comparison); peer group = mean of all other sites' totals for
-    that same calendar day (community comparison). ratio/status are
-    computed against the peer group, per the design decision documented in
-    CODE_WALKTHROUGH.md.
+    (self-comparison); peer group = mean of all OTHER SITES OF THE SAME
+    site_type's totals for that same calendar day (community comparison).
+    ratio/status are computed against the peer group, per the design
+    decision documented in CODE_WALKTHROUGH.md.
+
+    Peer grouping is scoped to site_type (e.g. "household" vs
+    "household_real_meter") so the simulated community and the real
+    smart-meter validation run never get averaged against each other --
+    they're two separate "communities" by construction, not one pool.
     """
+    site_types = {site.site_id: site.site_type for site in db.query(Site).all()}
+
     by_site: dict[str, list[tuple[date, float]]] = defaultdict(list)
-    by_day: dict[date, list[tuple[str, float]]] = defaultdict(list)
+    by_day_and_type: dict[tuple[date, str], list[tuple[str, float]]] = defaultdict(list)
     for (site_id, day), total in site_day_totals.items():
+        site_type = site_types.get(site_id, "household")
         by_site[site_id].append((day, total))
-        by_day[day].append((site_id, total))
+        by_day_and_type[(day, site_type)].append((site_id, total))
 
     for site_id in by_site:
         by_site[site_id].sort(key=lambda item: item[0])
 
     for site_id, day_totals in by_site.items():
+        site_type = site_types.get(site_id, "household")
         for i, (day, total) in enumerate(day_totals):
             history = [t for _, t in day_totals[:i]]  # prior days only, not today
             baseline = baseline_kwh(history)
 
-            peers = [t for other_site, t in by_day[day] if other_site != site_id]
+            peers = [
+                t
+                for other_site, t in by_day_and_type[(day, site_type)]
+                if other_site != site_id
+            ]
             peer_avg = peer_group_average_kwh(peers)
 
             ratio = relative_ratio(total, peer_avg)

@@ -100,3 +100,54 @@ def percentile(values: list[float], pct: float) -> float:
 def is_peak_reading(power_kw: float, threshold_kw: float) -> bool:
     """Peak flag: True if a reading's power meets/exceeds a configured threshold."""
     return power_kw >= threshold_kw
+
+
+# A8: abnormal-use warnings (eq. 8). Stage 1 is a Tukey IQR fence [20] per
+# channel over its 30 daily (or nightly) energy totals, with a floor so a
+# very stable site's tight IQR doesn't collapse the threshold to near-zero.
+NIGHT_WARNING_FLOOR_KWH = 1.0
+WARNING_SEVERITY_THRESHOLD = 1.25
+
+
+def daily_warning_threshold(daily_totals_kwh: list[float]) -> float:
+    """tau = max(Q3 + 1.5*IQR, 1.15*median) over a channel's daily energy totals."""
+    if not daily_totals_kwh:
+        return 0.0
+    q1 = percentile(daily_totals_kwh, 25)
+    median = percentile(daily_totals_kwh, 50)
+    q3 = percentile(daily_totals_kwh, 75)
+    iqr = q3 - q1
+    return round(max(q3 + 1.5 * iqr, 1.15 * median), 4)
+
+
+def night_warning_threshold(night_totals_kwh: list[float]) -> float:
+    """
+    Night base-load variant of the fence: max(Q3 + 1.5*IQR, 2*median,
+    median + 1.0 kWh), over a channel's 00:00-05:00 energy totals -- the
+    extra floor matters here because overnight totals are small, so a
+    purely IQR-based fence is too easy to trip on ordinary night-to-night
+    noise.
+    """
+    if not night_totals_kwh:
+        return 0.0
+    q1 = percentile(night_totals_kwh, 25)
+    median = percentile(night_totals_kwh, 50)
+    q3 = percentile(night_totals_kwh, 75)
+    iqr = q3 - q1
+    return round(max(q3 + 1.5 * iqr, 2 * median, median + NIGHT_WARNING_FLOOR_KWH), 4)
+
+
+def warning_severity(value_kwh: float, threshold_kwh: float) -> float:
+    """s = Ed / tau."""
+    if threshold_kwh <= 0:
+        return 0.0
+    return round(value_kwh / threshold_kwh, 3)
+
+
+def classify_warning(severity: float) -> str:
+    """s >= 1.25 is a warning, 1.0 < s < 1.25 is a notice, s <= 1.0 is in line."""
+    if severity >= WARNING_SEVERITY_THRESHOLD:
+        return "warning"
+    if severity > 1.0:
+        return "notice"
+    return "in_line"

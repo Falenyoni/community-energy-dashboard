@@ -4,7 +4,9 @@ from typing import Literal, Optional
 from pydantic import BaseModel
 
 # Must stay in sync with app.models.CONTROLLER_CHANNELS / SWITCHING_STATES
-ControllerChannel = Literal["geyser", "fridge", "lighting", "plugs", "cooking", "background"]
+ControllerChannel = Literal[
+    "geyser", "fridge", "lighting", "plugs", "cooking", "background", "whole_house"
+]
 SwitchingState = Literal["on", "off", "standby", "fault"]
 
 

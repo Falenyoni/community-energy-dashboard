@@ -36,8 +36,9 @@ from app.ingestion.validators import (
     classify_reading,
     completeness_ratio,
     expected_reading_count,
+    fill_short_gaps,
 )
-from app.models import AuditLog, Reading
+from app.models import AuditLog, Reading, new_id
 
 
 def ingest_csv_fast(path: str, batch_size: int = 2000) -> None:
@@ -46,6 +47,7 @@ def ingest_csv_fast(path: str, batch_size: int = 2000) -> None:
     counts: dict[str, int] = {}
     rejected: list[tuple[int, str]] = []
     device_timestamps: dict[str, list[datetime]] = {}
+    device_valid_readings: dict[str, list[tuple[datetime, float]]] = {}
     pending_rows: list[dict] = []
 
     existing_reading_ids: set[str] = {row[0] for row in db.query(Reading.reading_id).all()}
@@ -69,6 +71,10 @@ def ingest_csv_fast(path: str, batch_size: int = 2000) -> None:
                 counts[quality_flag] = counts.get(quality_flag, 0) + 1
                 if quality_flag != "duplicate":
                     device_timestamps.setdefault(reading.device_id, []).append(reading.timestamp)
+                if quality_flag == "valid":
+                    device_valid_readings.setdefault(reading.device_id, []).append(
+                        (reading.timestamp, reading.power_kw)
+                    )
 
                 get_or_create_site(db, reading.site_id)
                 get_or_create_channel(
@@ -103,6 +109,34 @@ def ingest_csv_fast(path: str, batch_size: int = 2000) -> None:
 
         flush_pending()
         db.commit()
+
+        # Stage-1 gap handling: fill short (<=2 interval) gaps per device
+        # now that every device's full set of valid readings is known.
+        imputed_rows: list[dict] = []
+        for device_id, readings in device_valid_readings.items():
+            for gap_row in fill_short_gaps(device_id, readings):
+                reading_id = f"{device_id}-imputed-{gap_row['timestamp'].isoformat()}"
+                if reading_id in existing_reading_ids:
+                    continue
+                existing_reading_ids.add(reading_id)
+                imputed_rows.append(
+                    {
+                        "reading_id": reading_id,
+                        "device_id": gap_row["device_id"],
+                        "timestamp": gap_row["timestamp"],
+                        "voltage_v": None,
+                        "current_a": None,
+                        "power_kw": gap_row["power_kw"],
+                        "energy_kwh_interval": gap_row["energy_kwh_interval"],
+                        "cumulative_energy_kwh": None,
+                        "switching_state": "on" if gap_row["power_kw"] > 0 else "standby",
+                        "quality_flag": "imputed",
+                    }
+                )
+        if imputed_rows:
+            db.execute(insert(Reading), imputed_rows)
+            db.commit()
+            counts["imputed"] = counts.get("imputed", 0) + len(imputed_rows)
     except Exception:
         db.rollback()
         raise
@@ -111,7 +145,8 @@ def ingest_csv_fast(path: str, batch_size: int = 2000) -> None:
     summary = (
         f"fast_ingest_csv:{path} rows={total_rows} valid={counts.get('valid', 0)} "
         f"missing={counts.get('missing', 0)} duplicate={counts.get('duplicate', 0)} "
-        f"out_of_range={counts.get('out_of_range', 0)} rejected={len(rejected)}"
+        f"out_of_range={counts.get('out_of_range', 0)} imputed={counts.get('imputed', 0)} "
+        f"rejected={len(rejected)}"
     )
     db.add(AuditLog(action=summary))
     db.commit()

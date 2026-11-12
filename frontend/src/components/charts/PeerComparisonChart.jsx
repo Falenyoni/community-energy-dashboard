@@ -1,14 +1,25 @@
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import ChartTooltip from '../ChartTooltip';
 
+const PERIOD_WINDOW_DAYS = { day: 1, week: 7, month: 30 };
+
 // "This site is the point, the peer group is context" -> emphasis form:
 // one hue for the site, gray for everything else, per the data-viz skill.
-export default function PeerComparisonChart({ siteSummary, comparison }) {
+export default function PeerComparisonChart({ siteSummary, comparison, period = 'day' }) {
+  // "day" mode: comparison has one persisted row per date (period is an ISO
+  // date string), so each day gets its own peer average. "week"/"month"
+  // mode: the comparison endpoint instead returns a single on-the-fly row
+  // for the whole window (period is a label like "week ending ..."), so
+  // every visible day shares that one flat benchmark instead.
+  const windowDays = PERIOD_WINDOW_DAYS[period] ?? 1;
+  const visibleDays = period === 'day' ? siteSummary : siteSummary.slice(-windowDays);
   const comparisonByDate = new Map(comparison.map((c) => [c.period, c]));
-  const rows = siteSummary.map((day) => ({
+  const flatPeerAverage = period === 'day' ? null : comparison[0]?.group_average_kwh ?? null;
+
+  const rows = visibleDays.map((day) => ({
     date: day.date,
     this_site: day.total_kwh,
-    peer_average: comparisonByDate.get(day.date)?.group_average_kwh ?? null,
+    peer_average: period === 'day' ? comparisonByDate.get(day.date)?.group_average_kwh ?? null : flatPeerAverage,
   }));
 
   return (

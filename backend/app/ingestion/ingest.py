@@ -22,6 +22,7 @@ from app.ingestion.validators import (
     classify_reading,
     completeness_ratio,
     expected_reading_count,
+    fill_short_gaps,
 )
 from app.models import AuditLog, Reading, Site, SmartControllerChannel
 
@@ -64,6 +65,7 @@ def ingest_csv(path: str) -> None:
     counts: dict[str, int] = {}
     rejected: list[tuple[int, str]] = []
     device_timestamps: dict[str, list[datetime]] = {}
+    device_valid_readings: dict[str, list[tuple[datetime, float]]] = {}
 
     # Loaded once, checked in memory per row — avoids one DB round-trip per
     # row (a real cost at ~170k+ rows against a remote database) just to
@@ -86,6 +88,10 @@ def ingest_csv(path: str) -> None:
                 # filling a new one, so it must not inflate the completeness count.
                 if quality_flag != "duplicate":
                     device_timestamps.setdefault(reading.device_id, []).append(reading.timestamp)
+                if quality_flag == "valid":
+                    device_valid_readings.setdefault(reading.device_id, []).append(
+                        (reading.timestamp, reading.power_kw)
+                    )
 
                 get_or_create_site(db, reading.site_id)
                 get_or_create_channel(
@@ -123,6 +129,32 @@ def ingest_csv(path: str) -> None:
                     print(f"  ...processed {row_number:,} rows (committed)")
 
         db.commit()
+
+        imputed_count = 0
+        for device_id, readings in device_valid_readings.items():
+            for gap_row in fill_short_gaps(device_id, readings):
+                reading_id = f"{device_id}-imputed-{gap_row['timestamp'].isoformat()}"
+                if reading_id in existing_reading_ids:
+                    continue
+                existing_reading_ids.add(reading_id)
+                db.add(
+                    Reading(
+                        reading_id=reading_id,
+                        device_id=gap_row["device_id"],
+                        timestamp=gap_row["timestamp"],
+                        voltage_v=None,
+                        current_a=None,
+                        power_kw=gap_row["power_kw"],
+                        energy_kwh_interval=gap_row["energy_kwh_interval"],
+                        cumulative_energy_kwh=None,
+                        switching_state="on" if gap_row["power_kw"] > 0 else "standby",
+                        quality_flag="imputed",
+                    )
+                )
+                imputed_count += 1
+        if imputed_count:
+            db.commit()
+            counts["imputed"] = counts.get("imputed", 0) + imputed_count
     except Exception:
         db.rollback()
         raise
@@ -131,7 +163,8 @@ def ingest_csv(path: str) -> None:
     summary = (
         f"ingest_csv:{path} rows={total_rows} valid={counts.get('valid', 0)} "
         f"missing={counts.get('missing', 0)} duplicate={counts.get('duplicate', 0)} "
-        f"out_of_range={counts.get('out_of_range', 0)} rejected={len(rejected)}"
+        f"out_of_range={counts.get('out_of_range', 0)} imputed={counts.get('imputed', 0)} "
+        f"rejected={len(rejected)}"
     )
     db.add(AuditLog(action=summary))
     db.commit()

@@ -119,6 +119,46 @@
   margin-bottom: 4px;
 }
 
+.chart-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.chart-card-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chart-card-header select,
+.chart-card-header input[type='date'],
+.chart-card-header button {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-hairline);
+  background: var(--surface-1);
+  color: var(--text-primary);
+}
+
+.chart-card-header button {
+  cursor: pointer;
+}
+
+.chart-card-header button:hover {
+  background: var(--gridline);
+}
+
+.chart-card-header button.live-on {
+  background: var(--status-good);
+  border-color: var(--status-good);
+  color: var(--surface-1);
+}
+
 .chart-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -261,6 +301,70 @@
   cursor: default;
   font-weight: 600;
   border-color: var(--text-secondary);
+}
+
+.simulate-date {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.simulate-date input {
+  font: inherit;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-hairline);
+  background: var(--surface-1);
+  color: var(--text-primary);
+}
+
+.simulate-button {
+  margin-left: 0;
+}
+
+.simulate-button:disabled {
+  color: var(--status-good);
+  border-color: var(--status-good);
+  font-weight: 600;
+}
+
+.simulate-error {
+  max-width: 1100px;
+  margin: 8px auto 0;
+  padding: 0 20px;
+  color: var(--status-warning);
+  font-size: 13px;
+}
+
+.period-switcher {
+  max-width: 1100px;
+  margin: 12px auto 0;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.period-switcher button {
+  font: inherit;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-hairline);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.period-switcher button:disabled {
+  color: var(--status-good);
+  border-color: var(--status-good);
+  font-weight: 600;
+  cursor: default;
 }
 
 /* Admin overview table */

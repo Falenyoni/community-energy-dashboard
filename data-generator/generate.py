@@ -202,6 +202,7 @@ def apply_injections(rows: list[dict]) -> tuple[list[dict], list[str]]:
         voltage_v = rows[i]["voltage_v"]
         rows[i]["power_kw"] = round(random.Random(seed_for(i)).uniform(2.5, 3.0), 3)
         rows[i]["current_a"] = derive_current(rows[i]["power_kw"], voltage_v, "geyser")
+        rows[i]["energy_kwh_interval"] = round(rows[i]["power_kw"] * (INTERVAL_MINUTES / 60), 5)
         rows[i]["switching_state"] = "on"
         rows[i]["quality_flag"] = "abnormal_event"
     if long_run:
@@ -213,6 +214,7 @@ def apply_injections(rows: list[dict]) -> tuple[list[dict], list[str]]:
         voltage_v = rows[i]["voltage_v"]
         rows[i]["power_kw"] = round(0.3 if pos % 2 == 0 else 0.02, 3)
         rows[i]["current_a"] = derive_current(rows[i]["power_kw"], voltage_v, "fridge")
+        rows[i]["energy_kwh_interval"] = round(rows[i]["power_kw"] * (INTERVAL_MINUTES / 60), 5)
         rows[i]["switching_state"] = "on" if pos % 2 == 0 else "standby"
         rows[i]["quality_flag"] = "abnormal_event"
     if target:
@@ -225,6 +227,7 @@ def apply_injections(rows: list[dict]) -> tuple[list[dict], list[str]]:
         voltage_v = rows[i]["voltage_v"]
         rows[i]["power_kw"] = round(random.Random(seed_for(i)).uniform(0.3, 0.5), 3)
         rows[i]["current_a"] = derive_current(rows[i]["power_kw"], voltage_v, "background")
+        rows[i]["energy_kwh_interval"] = round(rows[i]["power_kw"] * (INTERVAL_MINUTES / 60), 5)
         rows[i]["quality_flag"] = "abnormal_event"
     if overnight:
         log.append(f"Abnormal background overnight draw: HOUSE-006-BACKGROUND, day 18, 00:00-04:45 ({len(overnight)} intervals)")
